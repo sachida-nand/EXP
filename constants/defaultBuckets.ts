@@ -16,12 +16,3 @@ export const optionalBuckets: Bucket[] = [
   { id: 'opt-electricity', name: 'Electricity',   icon: '💡', color: '#854F0B', bgColor: '#FAEEDA', type: 'fixed', isWallet: false },
   { id: 'opt-loan-emi',    name: 'Loan EMI',      icon: '🏦', color: '#0F6E56', bgColor: '#E1F5EE', type: 'fixed', isWallet: false },
 ];
-
-export const defaultPurposes = [
-  'Grocery',
-  'Transport',
-  'Plumber',
-  'Medicine',
-  'Repair',
-  'Wifi',
-];

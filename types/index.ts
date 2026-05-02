@@ -45,10 +45,10 @@ export interface WalletSpend {
   year: number;
   amount: number;
   paidTo: string;
-  purpose: string;
   notes: string;
   receiptLink: string;
   balanceAfter: number;
+  deductsWallet: boolean;
 }
 
 export interface FixedPayment {
@@ -70,11 +70,6 @@ export interface CarryForward {
   fromYear: number;
 }
 
-export interface Purpose {
-  name: string;
-  createdAt: string;
-}
-
 export interface StoredAccount {
   uid: string;
   name: string;
@@ -82,4 +77,33 @@ export interface StoredAccount {
   photoURL?: string;
   sheetId: string;
   lastUsedAt: string;
+}
+
+export type UpiSource = 'phonepe' | 'gpay' | 'paytm' | 'unknown';
+export type FieldConfidence = 'ok' | 'guess' | 'missing';
+
+export interface ParsedPayment {
+  source: UpiSource;
+  amount: number;
+  paidTo: string;
+  message: string;
+  txnId: string;
+  date: Date;
+  raw: string;
+  confidence: {
+    amount: FieldConfidence;
+    paidTo: FieldConfidence;
+    message: FieldConfidence;
+    txnId: FieldConfidence;
+    date: FieldConfidence;
+  };
+}
+
+export interface PaymentDraft {
+  id: string;
+  capturedAt: string;
+  screenshotUri: string;
+  parsed: ParsedPayment;
+  target: 'wallet' | 'fixed';
+  bucketName?: string;
 }

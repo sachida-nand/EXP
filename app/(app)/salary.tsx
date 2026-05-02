@@ -20,6 +20,12 @@ import { useDataContext } from '../../context/DataContext';
 import { useSheets } from '../../hooks/useSheets';
 import { secureStorage } from '../../services/storage/secureStorage';
 import { saveSalary } from '../../services/sheets/salaryService';
+import { listAllocations } from '../../services/sheets/allocationsService';
+import {
+  listSpends,
+  totalSpentForMonth,
+} from '../../services/sheets/walletService';
+import { computeCarryForward } from '../../utils/carryForward';
 import { formatCurrency, parseCurrency } from '../../utils/formatCurrency';
 import { toSheetDate, previousMonth } from '../../utils/dateHelpers';
 import type { Bucket, Allocation } from '../../types';
@@ -120,13 +126,26 @@ export default function SalaryScreen() {
     }
     setSaving(true);
     try {
+      const prev = previousMonth(month, year);
+      const [prevAllocs, prevSpends] = await Promise.all([
+        listAllocations(user.uid, sheetId, prev.month, prev.year),
+        listSpends(user.uid, sheetId, prev.month, prev.year),
+      ]);
+      const prevWallet = prevAllocs.find((a) => a.bucketType === 'wallet');
+      const carryForward = prevWallet
+        ? computeCarryForward(
+            prevWallet.allocatedAmount,
+            totalSpentForMonth(prevSpends),
+          )
+        : 0;
+
       await saveSalary(user.uid, sheetId, {
         month,
         year,
         salaryAmount: salaryNum,
         source: source.trim(),
         dateCredited: toSheetDate(),
-        carryForward: 0,
+        carryForward,
       });
       const list: Allocation[] = buckets.map((b) => ({
         month,

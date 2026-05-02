@@ -9,6 +9,7 @@ import {
 } from '../../constants/sheetConfig';
 import { getFreshAccessToken } from '../auth/googleAuth';
 import { secureStorage } from '../storage/secureStorage';
+import { ensureDriveLayout } from '../drive/driveReceipts';
 
 const logGoogleError = (tag: string, err: unknown): Error => {
   const ax = err as AxiosError<{ error?: { code?: number; message?: string; status?: string; errors?: unknown } }>;
@@ -36,7 +37,6 @@ const ORDERED_TABS: TabName[] = [
   TABS.allocations,
   TABS.dailyWallet,
   TABS.fixedPayments,
-  TABS.purposes,
 ];
 
 interface CreatedSpreadsheet {
@@ -92,6 +92,14 @@ export const ensureUserSheet = async (
     console.log('[ensureUserSheet] reusing existing sheet', existing);
     try {
       const gids = await fetchTabGids(uid, existing);
+      // One-time migration for existing users: move sheet (and receipts folder
+      // if it exists) into the Expense Manager parent folder. Cached flag
+      // short-circuits subsequent calls.
+      try {
+        await ensureDriveLayout(uid, name, existing);
+      } catch (err) {
+        console.warn('[ensureUserSheet] drive layout migration failed', err);
+      }
       return { sheetId: existing, created: false, tabGids: gids };
     } catch (err) {
       throw logGoogleError('fetchTabGids', err);
@@ -108,6 +116,11 @@ export const ensureUserSheet = async (
       const gids = await fetchTabGids(uid, found);
       await secureStorage.setSheetId(uid, found);
       await syncStoredAccountSheetId(uid, found);
+      try {
+        await ensureDriveLayout(uid, name, found);
+      } catch (err) {
+        console.warn('[ensureUserSheet] drive layout migration failed', err);
+      }
       return { sheetId: found, created: false, tabGids: gids };
     } catch (err) {
       throw logGoogleError('fetchTabGids', err);
@@ -129,6 +142,13 @@ export const ensureUserSheet = async (
 
     await secureStorage.setSheetId(uid, sheetId);
     await syncStoredAccountSheetId(uid, sheetId);
+
+    // Place the new sheet inside the Expense Manager parent folder.
+    try {
+      await ensureDriveLayout(uid, name, sheetId);
+    } catch (err) {
+      console.warn('[ensureUserSheet] drive layout setup failed', err);
+    }
 
     return { sheetId, created: true, tabGids };
   } catch (err) {

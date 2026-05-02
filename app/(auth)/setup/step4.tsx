@@ -28,7 +28,6 @@ const TAB_LABELS: Array<{ key: string; label: string }> = [
   { key: TABS.allocations, label: 'Allocations' },
   { key: TABS.dailyWallet, label: 'Daily Wallet' },
   { key: TABS.fixedPayments, label: 'Fixed Payments' },
-  { key: TABS.purposes, label: 'Purposes' },
 ];
 
 export default function Step4() {

@@ -20,6 +20,7 @@ import { useSheets } from '../../hooks/useSheets';
 import { useDataContext } from '../../context/DataContext';
 import { secureStorage } from '../../services/storage/secureStorage';
 import { formatCurrency } from '../../utils/formatCurrency';
+import { monthName, year as yearOf } from '../../utils/dateHelpers';
 import { buildCsv, shareCsv } from '../../utils/exportCsv';
 import type {
   MonthData,
@@ -59,8 +60,8 @@ export default function HistoryScreen() {
   const [spends, setSpends] = useState<WalletSpend[]>([]);
   const [fixed, setFixed] = useState<FixedPayment[]>([]);
 
-  const [yearFilter, setYearFilter] = useState<number | 'All'>('All');
-  const [monthFilter, setMonthFilter] = useState<string | 'All'>('All');
+  const [yearFilter, setYearFilter] = useState<number | 'All'>(() => yearOf());
+  const [monthFilter, setMonthFilter] = useState<string | 'All'>(() => monthName());
   const [showFilter, setShowFilter] = useState<ShowMode>('All');
   const [picker, setPicker] = useState<FilterKey | null>(null);
   const [detailSpend, setDetailSpend] = useState<WalletSpend | null>(null);
@@ -122,14 +123,16 @@ export default function HistoryScreen() {
   }, [salaries, allocations, spends, fixed]);
 
   const availableYears = useMemo(() => {
-    const years = Array.from(new Set(allBlocks.map((b) => b.year)));
-    return years.sort((a, b) => b - a);
-  }, [allBlocks]);
+    const set = new Set(allBlocks.map((b) => b.year));
+    if (typeof yearFilter === 'number') set.add(yearFilter);
+    return Array.from(set).sort((a, b) => b - a);
+  }, [allBlocks, yearFilter]);
 
   const availableMonths = useMemo(() => {
-    const months = Array.from(new Set(allBlocks.map((b) => b.month)));
-    return months.sort((a, b) => monthIndex(a) - monthIndex(b));
-  }, [allBlocks]);
+    const set = new Set(allBlocks.map((b) => b.month));
+    if (monthFilter !== 'All') set.add(monthFilter);
+    return Array.from(set).sort((a, b) => monthIndex(a) - monthIndex(b));
+  }, [allBlocks, monthFilter]);
 
   const blocks: MonthBlock[] = useMemo(() => {
     return allBlocks.filter((b) => {
@@ -247,15 +250,13 @@ export default function HistoryScreen() {
         }
         if (includeWallet) {
           for (const s of b.spends) {
-            const detail = [s.paidTo, s.purpose, s.notes]
-              .filter(Boolean)
-              .join(' · ');
+            const detail = [s.paidTo, s.notes].filter(Boolean).join(' · ');
             rows.push([
               'Wallet',
               b.month,
               b.year,
               s.date,
-              s.purpose || s.paidTo || 'Spend',
+              s.paidTo || 'Spend',
               s.amount,
               detail,
               s.receiptLink,
@@ -484,7 +485,7 @@ export default function HistoryScreen() {
                         onPress={() => setDetailSpend(s)}
                       >
                         <Text style={styles.itemMain}>
-                          {s.purpose || s.paidTo || 'Spend'}
+                          {s.paidTo || 'Spend'}
                         </Text>
                         <Text style={styles.itemSub}>{s.date}</Text>
                         <Text style={styles.itemAmount}>

@@ -8,8 +8,7 @@ import React, {
 } from 'react';
 import { Alert } from 'react-native';
 import { AxiosError } from 'axios';
-import { monthName, year as yearOf, previousMonth } from '../utils/dateHelpers';
-import { computeCarryForward } from '../utils/carryForward';
+import { monthName, year as yearOf } from '../utils/dateHelpers';
 import { fetchTabGids } from '../services/sheets/sheetsSetup';
 import { getSalaryFor } from '../services/sheets/salaryService';
 import {
@@ -20,6 +19,7 @@ import {
   listSpends,
   addSpend as svcAddSpend,
   removeSpend as svcRemoveSpend,
+  updateSpend as svcUpdateSpend,
   totalSpentForMonth,
 } from '../services/sheets/walletService';
 import {
@@ -27,17 +27,12 @@ import {
   addFixedPayment as svcAddFixedPayment,
   removeFixedPayment as svcRemoveFixedPayment,
 } from '../services/sheets/fixedService';
-import {
-  listPurposes,
-  addPurpose as svcAddPurpose,
-} from '../services/sheets/purposesService';
 import { TABS, type TabName } from '../constants/sheetConfig';
 import type {
   MonthData,
   Allocation,
   WalletSpend,
   FixedPayment,
-  Purpose,
 } from '../types';
 import { useAuthContext } from './AuthContext';
 
@@ -49,7 +44,6 @@ interface State {
   allocations: Allocation[];
   spends: WalletSpend[];
   fixedPayments: FixedPayment[];
-  purposes: Purpose[];
   carryForward: number;
   tabGids: Record<TabName, number> | null;
 }
@@ -59,10 +53,10 @@ type Action =
   | { type: 'month'; month: string; year: number }
   | { type: 'hydrate'; payload: Partial<State> }
   | { type: 'spend-added'; spend: WalletSpend }
+  | { type: 'spend-updated'; spend: WalletSpend }
   | { type: 'spend-removed'; id: string }
   | { type: 'fixed-added'; payment: FixedPayment }
-  | { type: 'fixed-removed'; id: string }
-  | { type: 'purpose-added'; purpose: Purpose };
+  | { type: 'fixed-removed'; id: string };
 
 const todayMonth = monthName();
 const todayYear = yearOf();
@@ -75,7 +69,6 @@ const initialState: State = {
   allocations: [],
   spends: [],
   fixedPayments: [],
-  purposes: [],
   carryForward: 0,
   tabGids: null,
 };
@@ -90,6 +83,13 @@ const reducer = (state: State, action: Action): State => {
       return { ...state, ...action.payload, loading: false };
     case 'spend-added':
       return { ...state, spends: [action.spend, ...state.spends] };
+    case 'spend-updated':
+      return {
+        ...state,
+        spends: state.spends.map((s) =>
+          s.id === action.spend.id ? action.spend : s,
+        ),
+      };
     case 'spend-removed':
       return { ...state, spends: state.spends.filter((s) => s.id !== action.id) };
     case 'fixed-added':
@@ -102,12 +102,6 @@ const reducer = (state: State, action: Action): State => {
         ...state,
         fixedPayments: state.fixedPayments.filter((p) => p.id !== action.id),
       };
-    case 'purpose-added':
-      return state.purposes.some(
-        (p) => p.name.toLowerCase() === action.purpose.name.toLowerCase(),
-      )
-        ? state
-        : { ...state, purposes: [...state.purposes, action.purpose] };
     default:
       return state;
   }
@@ -117,11 +111,14 @@ interface DataContextValue extends State {
   setActiveMonth: (month: string, year: number) => void;
   refresh: () => Promise<void>;
   addSpend: (spend: Omit<WalletSpend, 'id' | 'balanceAfter'>) => Promise<void>;
+  updateSpend: (
+    id: string,
+    patch: Omit<WalletSpend, 'id' | 'balanceAfter'>,
+  ) => Promise<void>;
   removeSpend: (id: string) => Promise<void>;
   saveAllocationsForMonth: (list: Allocation[]) => Promise<void>;
   addFixedPayment: (payment: Omit<FixedPayment, 'id'>) => Promise<void>;
   removeFixedPayment: (id: string) => Promise<void>;
-  addPurpose: (name: string) => Promise<void>;
   walletBucket: Allocation | undefined;
   walletBudget: number;
   walletSpent: number;
@@ -140,25 +137,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     async (uid: string, sid: string, month: string, year: number) => {
       dispatch({ type: 'loading', loading: true });
       try {
-        const [salary, allocations, spends, fixedPayments, purposes] =
+        const [salary, allocations, spends, fixedPayments, tabGids] =
           await Promise.all([
             getSalaryFor(uid, sid, month, year),
             listAllocations(uid, sid, month, year),
             listSpends(uid, sid, month, year),
             listFixedPayments(uid, sid, month, year),
-            listPurposes(uid, sid),
+            fetchTabGids(uid, sid),
           ]);
 
-        const prev = previousMonth(month, year);
-        const prevAllocs = await listAllocations(uid, sid, prev.month, prev.year);
-        const prevSpends = await listSpends(uid, sid, prev.month, prev.year);
-        const prevWallet = prevAllocs.find((a) => a.bucketType === 'wallet');
-        const prevWalletSpent = totalSpentForMonth(prevSpends);
-        const carryForward = prevWallet
-          ? computeCarryForward(prevWallet.allocatedAmount, prevWalletSpent)
-          : 0;
-
-        const tabGids = state.tabGids ?? (await fetchTabGids(uid, sid));
+        const carryForward = salary?.carryForward ?? 0;
 
         dispatch({
           type: 'hydrate',
@@ -167,7 +155,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             allocations,
             spends,
             fixedPayments,
-            purposes,
             carryForward,
             tabGids,
           },
@@ -186,7 +173,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
         throw err;
       }
     },
-    [state.tabGids, clearSheet],
+    [clearSheet],
   );
 
   useEffect(() => {
@@ -217,7 +204,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
   const addSpend = useCallback(
     async (spend: Omit<WalletSpend, 'id' | 'balanceAfter'>) => {
       if (!user || !sheetId) throw new Error('Not authenticated');
-      const balanceAfter = walletRemaining - spend.amount;
+      const balanceAfter = spend.deductsWallet
+        ? walletRemaining - spend.amount
+        : walletRemaining;
       const added = await svcAddSpend(user.uid, sheetId, {
         ...spend,
         balanceAfter,
@@ -225,6 +214,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
       dispatch({ type: 'spend-added', spend: added });
     },
     [user, sheetId, walletRemaining],
+  );
+
+  const updateSpend = useCallback(
+    async (id: string, patch: Omit<WalletSpend, 'id' | 'balanceAfter'>) => {
+      if (!user || !sheetId) throw new Error('Not authenticated');
+      const existing = state.spends.find((s) => s.id === id);
+      if (!existing) throw new Error(`Spend not found: ${id}`);
+      const oldDeducted = existing.deductsWallet ? existing.amount : 0;
+      const newDeducted = patch.deductsWallet ? patch.amount : 0;
+      const balanceAfter =
+        existing.balanceAfter + oldDeducted - newDeducted;
+      const next: WalletSpend = { ...patch, id, balanceAfter };
+      await svcUpdateSpend(user.uid, sheetId, next);
+      dispatch({ type: 'spend-updated', spend: next });
+    },
+    [user, sheetId, state.spends],
   );
 
   const removeSpend = useCallback(
@@ -271,26 +276,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     [user, sheetId, state.tabGids, refresh],
   );
 
-  const addPurpose = useCallback(
-    async (name: string) => {
-      if (!user || !sheetId) throw new Error('Not authenticated');
-      const added = await svcAddPurpose(user.uid, sheetId, name);
-      dispatch({ type: 'purpose-added', purpose: added });
-    },
-    [user, sheetId],
-  );
-
   const value = useMemo<DataContextValue>(
     () => ({
       ...state,
       setActiveMonth,
       refresh,
       addSpend,
+      updateSpend,
       removeSpend,
       saveAllocationsForMonth,
       addFixedPayment,
       removeFixedPayment,
-      addPurpose,
       walletBucket,
       walletBudget,
       walletSpent,
@@ -301,11 +297,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
       setActiveMonth,
       refresh,
       addSpend,
+      updateSpend,
       removeSpend,
       saveAllocationsForMonth,
       addFixedPayment,
       removeFixedPayment,
-      addPurpose,
       walletBucket,
       walletBudget,
       walletSpent,

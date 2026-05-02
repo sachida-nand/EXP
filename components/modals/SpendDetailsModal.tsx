@@ -21,6 +21,7 @@ interface SpendDetailsModalProps {
   currency?: string;
   onClose: () => void;
   onDelete?: (id: string) => Promise<void> | void;
+  onEdit?: (spend: WalletSpend) => void;
 }
 
 export const SpendDetailsModal: React.FC<SpendDetailsModalProps> = ({
@@ -29,6 +30,7 @@ export const SpendDetailsModal: React.FC<SpendDetailsModalProps> = ({
   currency = '₹',
   onClose,
   onDelete,
+  onEdit,
 }) => {
   const [deleting, setDeleting] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
@@ -84,7 +86,14 @@ export const SpendDetailsModal: React.FC<SpendDetailsModalProps> = ({
 
           <DetailRow label="Date" value={spend.date} />
           <DetailRow label="Paid to" value={spend.paidTo || '—'} />
-          <DetailRow label="Purpose" value={spend.purpose || '—'} />
+          <DetailRow
+            label="Type"
+            value={
+              spend.deductsWallet
+                ? 'Deducted from wallet'
+                : 'Tracked only (lent)'
+            }
+          />
           <DetailRow label="Month" value={`${spend.month} ${spend.year}`} />
           {spend.notes ? <DetailRow label="Notes" value={spend.notes} /> : null}
 
@@ -105,6 +114,23 @@ export const SpendDetailsModal: React.FC<SpendDetailsModalProps> = ({
           )}
 
           <View style={styles.actionRow}>
+            {onEdit ? (
+              <Pressable
+                onPress={() => {
+                  if (deleting) return;
+                  onEdit(spend);
+                }}
+                disabled={deleting}
+                style={[styles.editBtn, deleting && styles.btnDisabled]}
+              >
+                <Ionicons
+                  name="create-outline"
+                  size={16}
+                  color={colors.white}
+                />
+                <Text style={styles.editBtnText}>Edit</Text>
+              </Pressable>
+            ) : null}
             {onDelete ? (
               <Pressable
                 onPress={confirmDelete}
@@ -252,5 +278,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
   },
   deleteBtnText: { color: colors.white, fontWeight: '700' },
+  editBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.blue,
+  },
+  editBtnText: { color: colors.white, fontWeight: '700' },
   btnDisabled: { opacity: 0.5 },
 });

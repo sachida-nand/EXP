@@ -5,7 +5,6 @@ export const TABS = {
   allocations: 'Allocations',
   dailyWallet: 'Daily Wallet',
   fixedPayments: 'Fixed Payments',
-  purposes: 'Purposes',
 } as const;
 
 export type TabName = (typeof TABS)[keyof typeof TABS];
@@ -40,6 +39,7 @@ export const HEADERS = {
     'receipt_link',
     'balance_after',
     'created_at',
+    'deducts_wallet',
   ],
   [TABS.fixedPayments]: [
     'month',
@@ -53,15 +53,13 @@ export const HEADERS = {
     'created_at',
     'notes',
   ],
-  [TABS.purposes]: ['purpose_name', 'created_at'],
 } as const;
 
 export const LAST_COLUMN: Record<TabName, string> = {
   [TABS.salary]: 'G',
   [TABS.allocations]: 'G',
-  [TABS.dailyWallet]: 'J',
+  [TABS.dailyWallet]: 'K',
   [TABS.fixedPayments]: 'J',
-  [TABS.purposes]: 'B',
 };
 
 export const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';

@@ -35,7 +35,6 @@ export default function Dashboard() {
     allocations,
     fixedPayments,
     spends,
-    purposes,
     carryForward,
     walletBudget,
     walletSpent,
@@ -43,7 +42,6 @@ export default function Dashboard() {
     loading,
     refresh,
     addSpend,
-    addPurpose,
   } = useDataContext();
 
   const [currency, setCurrency] = useState('₹');
@@ -101,16 +99,16 @@ export default function Dashboard() {
   const handleAddSpend = async ({
     amount,
     paidTo,
-    purpose,
     notes,
     date,
+    deductsWallet,
     image,
   }: {
     amount: number;
     paidTo: string;
-    purpose: string;
     notes: string;
     date: Date;
+    deductsWallet: boolean;
     image?: { uri: string; mimeType: string; fileName: string };
   }) => {
     if (!user) return;
@@ -139,16 +137,10 @@ export default function Dashboard() {
         year: spendYear,
         amount,
         paidTo,
-        purpose,
         notes,
         receiptLink,
+        deductsWallet,
       });
-      if (
-        purpose &&
-        !purposes.some((p) => p.name.toLowerCase() === purpose.toLowerCase())
-      ) {
-        await addPurpose(purpose);
-      }
       if (paidTo.trim()) {
         await secureStorage.addPaidToRecent(user.uid, paidTo.trim());
         const updated = await secureStorage.getPaidToRecents(user.uid);
@@ -318,7 +310,6 @@ export default function Dashboard() {
         visible={showAdd}
         onClose={() => setShowAdd(false)}
         onSubmit={handleAddSpend}
-        purposes={purposes.map((p) => p.name)}
         paidToSuggestions={paidToSuggestions}
         currency={currency}
       />

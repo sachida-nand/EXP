@@ -11,6 +11,7 @@ import {
   Platform,
   ScrollView,
   Image,
+  Switch,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +22,8 @@ import DateTimePicker, {
 } from '@react-native-community/datetimepicker';
 import dayjs from 'dayjs';
 import { colors } from '../../constants/colors';
+import { fromSheetDate } from '../../utils/dateHelpers';
+import type { WalletSpend } from '../../types';
 
 const MAX_WIDTH = 1080;
 const COMPRESS_QUALITY = 0.35;
@@ -34,51 +37,65 @@ export interface AttachedImage {
 export interface SpendInput {
   amount: number;
   paidTo: string;
-  purpose: string;
   notes: string;
   date: Date;
+  deductsWallet: boolean;
   image?: AttachedImage;
+  // Pre-existing receipt URL (set when editing). The save handler should
+  // re-upload only when `image` is set, otherwise keep this link as-is.
+  existingReceiptLink?: string;
 }
 
 interface AddSpendModalProps {
   visible: boolean;
   onClose: () => void;
   onSubmit: (v: SpendInput) => Promise<void> | void;
-  initialPurpose?: string;
-  purposes?: string[];
   paidToSuggestions?: string[];
   currency?: string;
+  // When set, the modal opens in "edit" mode pre-filled from this spend.
+  editing?: WalletSpend | null;
 }
 
 export const AddSpendModal: React.FC<AddSpendModalProps> = ({
   visible,
   onClose,
   onSubmit,
-  initialPurpose = '',
-  purposes = [],
   paidToSuggestions = [],
   currency = '₹',
+  editing,
 }) => {
   const [amount, setAmount] = useState('');
   const [paidTo, setPaidTo] = useState('');
-  const [purpose, setPurpose] = useState(initialPurpose);
   const [notes, setNotes] = useState('');
   const [image, setImage] = useState<AttachedImage | null>(null);
+  const [keepExistingReceipt, setKeepExistingReceipt] = useState(true);
   const [busy, setBusy] = useState(false);
   const [date, setDate] = useState<Date>(() => new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [deductsWallet, setDeductsWallet] = useState(true);
 
   useEffect(() => {
-    if (visible) {
+    if (!visible) return;
+    if (editing) {
+      setAmount(String(editing.amount));
+      setPaidTo(editing.paidTo);
+      setNotes(editing.notes);
+      setImage(null);
+      setKeepExistingReceipt(Boolean(editing.receiptLink));
+      setDate(fromSheetDate(editing.date).toDate());
+      setShowDatePicker(false);
+      setDeductsWallet(editing.deductsWallet);
+    } else {
       setAmount('');
       setPaidTo('');
-      setPurpose(initialPurpose);
       setNotes('');
       setImage(null);
+      setKeepExistingReceipt(false);
       setDate(new Date());
       setShowDatePicker(false);
+      setDeductsWallet(true);
     }
-  }, [visible, initialPurpose]);
+  }, [visible, editing]);
 
   const onChangeDate = (event: DateTimePickerEvent, selected?: Date) => {
     if (Platform.OS !== 'ios') setShowDatePicker(false);
@@ -92,7 +109,7 @@ export const AddSpendModal: React.FC<AddSpendModalProps> = ({
 
   const parsed = Number(amount);
   const validNumber = Number.isFinite(parsed) && parsed > 0;
-  const canSubmit = validNumber && purpose.trim().length > 0;
+  const canSubmit = validNumber && paidTo.trim().length > 0;
 
   const pickImage = async () => {
     try {
@@ -138,10 +155,14 @@ export const AddSpendModal: React.FC<AddSpendModalProps> = ({
       await onSubmit({
         amount: parsed,
         paidTo: paidTo.trim(),
-        purpose: purpose.trim(),
         notes: notes.trim(),
         date,
+        deductsWallet,
         image: image ?? undefined,
+        existingReceiptLink:
+          editing && keepExistingReceipt && !image
+            ? editing.receiptLink
+            : undefined,
       });
       onClose();
     } finally {
@@ -149,11 +170,14 @@ export const AddSpendModal: React.FC<AddSpendModalProps> = ({
     }
   };
 
+  const isEditing = Boolean(editing);
   const primaryLabel = busy
     ? image
       ? 'Uploading & saving…'
       : 'Saving…'
-    : 'Add spend';
+    : isEditing
+      ? 'Save changes'
+      : 'Add spend';
 
   return (
     <Modal
@@ -174,7 +198,9 @@ export const AddSpendModal: React.FC<AddSpendModalProps> = ({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
           >
-            <Text style={styles.title}>Add spend</Text>
+            <Text style={styles.title}>
+              {isEditing ? 'Edit spend' : 'Add spend'}
+            </Text>
 
             <Text style={styles.label}>
               Amount ({currency}) <Text style={styles.required}>*</Text>
@@ -209,12 +235,14 @@ export const AddSpendModal: React.FC<AddSpendModalProps> = ({
               />
             ) : null}
 
-            <Text style={styles.label}>Paid to (optional)</Text>
+            <Text style={styles.label}>
+              Paid to <Text style={styles.required}>*</Text>
+            </Text>
             <TextInput
               style={styles.input}
               value={paidTo}
               onChangeText={setPaidTo}
-              placeholder="e.g. Ride, Market, Plumber"
+              placeholder="e.g. Raj, Local store, Uber"
             />
             {(() => {
               const needle = paidTo.trim().toLowerCase();
@@ -246,41 +274,6 @@ export const AddSpendModal: React.FC<AddSpendModalProps> = ({
               );
             })()}
 
-            <Text style={styles.label}>
-              Purpose <Text style={styles.required}>*</Text>
-            </Text>
-            {purposes.length > 0 ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipRow}
-                keyboardShouldPersistTaps="handled"
-              >
-                {purposes.map((p) => {
-                  const active = purpose.trim().toLowerCase() === p.toLowerCase();
-                  return (
-                    <Pressable
-                      key={p}
-                      onPress={() => setPurpose(active ? '' : p)}
-                      style={[styles.chip, active && styles.chipActive]}
-                    >
-                      <Text
-                        style={[styles.chipText, active && styles.chipTextActive]}
-                      >
-                        {p}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            ) : null}
-            <TextInput
-              style={[styles.input, purposes.length > 0 && { marginTop: 8 }]}
-              value={purpose}
-              onChangeText={setPurpose}
-              placeholder="e.g. Repair"
-            />
-
             <Text style={styles.label}>Notes (optional)</Text>
             <TextInput
               style={[styles.input, styles.notesInput]}
@@ -308,12 +301,54 @@ export const AddSpendModal: React.FC<AddSpendModalProps> = ({
                   <Ionicons name="close" size={18} color={colors.gray} />
                 </Pressable>
               </View>
+            ) : isEditing && keepExistingReceipt && editing?.receiptLink ? (
+              <View style={styles.imageCard}>
+                <View style={styles.imageMeta}>
+                  <Text style={styles.imageName} numberOfLines={1}>
+                    Existing receipt
+                  </Text>
+                  <Text style={styles.imageHint}>Kept as-is on save</Text>
+                </View>
+                <Pressable
+                  onPress={pickImage}
+                  style={styles.imageReplace}
+                  disabled={busy}
+                >
+                  <Text style={styles.imageReplaceText}>Replace</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setKeepExistingReceipt(false)}
+                  style={styles.imageRemove}
+                >
+                  <Ionicons name="close" size={18} color={colors.gray} />
+                </Pressable>
+              </View>
             ) : (
               <Pressable onPress={pickImage} style={styles.attachBtn} disabled={busy}>
                 <Ionicons name="image-outline" size={18} color={colors.blueDark} />
                 <Text style={styles.attachBtnText}>Attach screenshot</Text>
               </Pressable>
             )}
+
+            <View style={styles.deductRow}>
+              <View style={styles.deductTextWrap}>
+                <Text style={styles.deductTitle}>
+                  Deduct from wallet balance
+                </Text>
+                <Text style={styles.deductHint}>
+                  {deductsWallet
+                    ? 'On — counted as a real expense.'
+                    : 'Off — tracked only (e.g. cash you lent).'}
+                </Text>
+              </View>
+              <Switch
+                value={deductsWallet}
+                onValueChange={setDeductsWallet}
+                trackColor={{ false: colors.grayLight, true: colors.green }}
+                thumbColor={colors.white}
+                disabled={busy}
+              />
+            </View>
 
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
               <Pressable
@@ -398,15 +433,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   chipRow: { gap: 8, paddingVertical: 4 },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 18,
-    backgroundColor: colors.grayLight,
-  },
-  chipActive: { backgroundColor: colors.green },
-  chipText: { fontSize: 12, color: colors.gray, fontWeight: '600' },
-  chipTextActive: { color: colors.white, fontWeight: '700' },
   suggestChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -454,6 +480,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  imageReplace: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: colors.blueLight,
+  },
+  imageReplaceText: { color: colors.blueDark, fontWeight: '700', fontSize: 12 },
   btn: {
     flex: 1,
     paddingVertical: 14,
@@ -465,4 +498,22 @@ const styles = StyleSheet.create({
   btnGhost: { backgroundColor: colors.grayLight },
   btnGhostText: { color: colors.gray, fontWeight: '600' },
   btnDisabled: { opacity: 0.5 },
+  deductRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.grayLight,
+  },
+  deductTextWrap: { flex: 1 },
+  deductTitle: { fontSize: 13, color: colors.gray, fontWeight: '700' },
+  deductHint: {
+    fontSize: 11,
+    color: colors.gray,
+    opacity: 0.7,
+    marginTop: 2,
+  },
 });

@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +21,6 @@ import dayjs from 'dayjs';
 import { colors } from '../../constants/colors';
 import { HeroCard, ProgressBar } from '../../components/ui/HeroCard';
 import { SpendRow } from '../../components/ui/SpendRow';
-import { PurposeChips } from '../../components/ui/PurposeChips';
 import { AddSpendModal } from '../../components/modals/AddSpendModal';
 import { SpendDetailsModal } from '../../components/modals/SpendDetailsModal';
 import { useAuth } from '../../hooks/useAuth';
@@ -58,22 +58,22 @@ export default function WalletScreen() {
     year: ctxYear,
     spends: ctxSpends,
     allocations: ctxAllocations,
-    purposes,
     carryForward: ctxCarryForward,
     loading: ctxLoading,
     refresh,
     addSpend,
+    updateSpend,
     removeSpend,
-    addPurpose,
   } = useDataContext();
 
   const [currency, setCurrency] = useState('₹');
-  const [selectedPurpose, setSelectedPurpose] = useState<string | null>(null);
   const [paidToFilter, setPaidToFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'spent' | 'lent'>('all');
   const [dateFilter, setDateFilter] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [paidToRecents, setPaidToRecents] = useState<string[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingSpend, setEditingSpend] = useState<WalletSpend | null>(null);
   const [detailSpend, setDetailSpend] = useState<WalletSpend | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -191,18 +191,28 @@ export default function WalletScreen() {
     const needle = paidToFilter.trim().toLowerCase();
     const dateKey = dateFilter ? toSheetDate(dateFilter) : null;
     return spends.filter((s) => {
-      if (selectedPurpose && s.purpose.toLowerCase() !== selectedPurpose.toLowerCase()) {
-        return false;
-      }
       if (needle && !s.paidTo.toLowerCase().includes(needle)) {
         return false;
       }
       if (dateKey && s.date !== dateKey) {
         return false;
       }
+      if (typeFilter === 'spent' && !s.deductsWallet) return false;
+      if (typeFilter === 'lent' && s.deductsWallet) return false;
       return true;
     });
-  }, [spends, selectedPurpose, paidToFilter, dateFilter]);
+  }, [spends, paidToFilter, dateFilter, typeFilter]);
+
+  const paidToMatches = useMemo(() => {
+    const needle = paidToFilter.trim().toLowerCase();
+    return paidToSuggestions
+      .filter((v) => {
+        if (v.toLowerCase() === needle) return false;
+        if (!needle) return true;
+        return v.toLowerCase().includes(needle);
+      })
+      .slice(0, 12);
+  }, [paidToSuggestions, paidToFilter]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, WalletSpend[]>();
@@ -224,13 +234,13 @@ export default function WalletScreen() {
   );
 
   const filterActive =
-    selectedPurpose !== null ||
     paidToFilter.trim().length > 0 ||
-    dateFilter !== null;
+    dateFilter !== null ||
+    typeFilter !== 'all';
   const clearFilters = () => {
-    setSelectedPurpose(null);
     setPaidToFilter('');
     setDateFilter(null);
+    setTypeFilter('all');
   };
 
   const onPickDate = (e: DateTimePickerEvent, picked?: Date) => {
@@ -258,23 +268,25 @@ export default function WalletScreen() {
   const handleSubmit = async ({
     amount,
     paidTo,
-    purpose,
     notes,
     date,
+    deductsWallet,
     image,
+    existingReceiptLink,
   }: {
     amount: number;
     paidTo: string;
-    purpose: string;
     notes: string;
     date: Date;
+    deductsWallet: boolean;
     image?: { uri: string; mimeType: string; fileName: string };
+    existingReceiptLink?: string;
   }) => {
     if (!user) return;
     const spendMonth = monthName(date);
     const spendYear = yearOf(date);
     try {
-      let receiptLink = '';
+      let receiptLink = existingReceiptLink ?? '';
       if (image) {
         const folderId = await ensureReceiptsFolder(user.uid, user.name);
         const stamp = `${spendMonth}-${spendYear}-wallet-${Date.now()}`;
@@ -291,18 +303,22 @@ export default function WalletScreen() {
           image.mimeType,
         );
       }
-      await addSpend({
+      const editingId = editingSpend?.id;
+      const payload = {
         date: toSheetDate(date),
         month: spendMonth,
         year: spendYear,
         amount,
         paidTo,
-        purpose,
         notes,
         receiptLink,
-      });
-      if (purpose && !purposes.some((p) => p.name.toLowerCase() === purpose.toLowerCase())) {
-        await addPurpose(purpose);
+        deductsWallet,
+      };
+      if (editingId) {
+        await updateSpend(editingId, payload);
+        setEditingSpend(null);
+      } else {
+        await addSpend(payload);
       }
       if (paidTo.trim()) {
         await secureStorage.addPaidToRecent(user.uid, paidTo.trim());
@@ -310,8 +326,8 @@ export default function WalletScreen() {
         setPaidToRecents(updated);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to add spend';
-      Alert.alert('Could not add spend', msg);
+      const msg = err instanceof Error ? err.message : 'Failed to save spend';
+      Alert.alert('Could not save spend', msg);
       throw err;
     }
   };
@@ -330,8 +346,8 @@ export default function WalletScreen() {
         'Year',
         `Amount (${currency})`,
         'Paid to',
-        'Purpose',
         'Notes',
+        'Deducted?',
         `Balance after (${currency})`,
         'Receipt',
       ];
@@ -341,8 +357,8 @@ export default function WalletScreen() {
         s.year,
         s.amount,
         s.paidTo,
-        s.purpose,
         s.notes,
+        s.deductsWallet ? 'Yes' : 'No',
         s.balanceAfter,
         s.receiptLink,
       ]);
@@ -351,7 +367,6 @@ export default function WalletScreen() {
         'spends',
         month,
         year,
-        selectedPurpose ? `purpose-${selectedPurpose}` : null,
         paidToFilter.trim() ? `to-${paidToFilter.trim()}` : null,
       ].filter(Boolean);
       await shareCsv(`${parts.join('_')}.csv`, csv);
@@ -377,8 +392,14 @@ export default function WalletScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView
         contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={onRefresh} />
         }
@@ -498,14 +519,28 @@ export default function WalletScreen() {
             />
           ) : null}
 
-          <Text style={styles.filterLabel}>By purpose</Text>
-          <PurposeChips
-            purposes={purposes.map((p) => p.name)}
-            selected={selectedPurpose}
-            onSelect={(p) =>
-              setSelectedPurpose((cur) => (cur === p ? null : p))
-            }
-          />
+          <Text style={styles.filterLabel}>By type</Text>
+          <View style={styles.segmentRow}>
+            {(['all', 'spent', 'lent'] as const).map((opt) => {
+              const active = typeFilter === opt;
+              return (
+                <Pressable
+                  key={opt}
+                  onPress={() => setTypeFilter(opt)}
+                  style={[styles.segmentBtn, active && styles.segmentBtnActive]}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      active && styles.segmentTextActive,
+                    ]}
+                  >
+                    {opt === 'all' ? 'All' : opt === 'spent' ? 'Spent' : 'Lent'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
           <Text style={styles.filterLabel}>By paid to</Text>
           <View style={styles.searchBox}>
@@ -514,8 +549,10 @@ export default function WalletScreen() {
               style={styles.searchInput}
               value={paidToFilter}
               onChangeText={setPaidToFilter}
-              placeholder="Type a name, e.g. Ride"
+              placeholder="Type a name, e.g. Raj"
               placeholderTextColor={colors.gray}
+              autoCorrect={false}
+              autoCapitalize="none"
             />
             {paidToFilter.length > 0 ? (
               <Pressable onPress={() => setPaidToFilter('')} hitSlop={8}>
@@ -523,6 +560,29 @@ export default function WalletScreen() {
               </Pressable>
             ) : null}
           </View>
+          {paidToMatches.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.suggestRow}
+              keyboardShouldPersistTaps="handled"
+            >
+              {paidToMatches.map((m) => (
+                <Pressable
+                  key={m}
+                  onPress={() => {
+                    setPaidToFilter(m);
+                    Keyboard.dismiss();
+                  }}
+                  style={styles.suggestChip}
+                >
+                  <Text style={styles.suggestChipText} numberOfLines={1}>
+                    {m}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
 
           <Pressable
             onPress={handleExport}
@@ -575,15 +635,18 @@ export default function WalletScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <AddSpendModal
-        visible={showAdd}
-        onClose={() => setShowAdd(false)}
+        visible={showAdd || editingSpend !== null}
+        onClose={() => {
+          setShowAdd(false);
+          setEditingSpend(null);
+        }}
         onSubmit={handleSubmit}
-        initialPurpose={selectedPurpose ?? ''}
-        purposes={purposes.map((p) => p.name)}
         paidToSuggestions={paidToSuggestions}
         currency={currency}
+        editing={editingSpend}
       />
 
       <SpendDetailsModal
@@ -592,6 +655,10 @@ export default function WalletScreen() {
         currency={currency}
         onClose={() => setDetailSpend(null)}
         onDelete={handleDelete}
+        onEdit={(s) => {
+          setDetailSpend(null);
+          setEditingSpend(s);
+        }}
       />
     </SafeAreaView>
   );
@@ -599,7 +666,8 @@ export default function WalletScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.white },
-  scroll: { padding: 16 },
+  flex: { flex: 1 },
+  scroll: { padding: 16, paddingBottom: 96 },
   heroLabel: { color: colors.white, opacity: 0.8, fontSize: 13 },
   heroValue: {
     color: colors.white,
@@ -746,6 +814,54 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.gray,
     padding: 0,
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.grayLight,
+    borderRadius: 10,
+    padding: 3,
+    marginTop: 4,
+    gap: 3,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  segmentBtnActive: {
+    backgroundColor: colors.white,
+  },
+  segmentText: {
+    fontSize: 12,
+    color: colors.gray,
+    opacity: 0.7,
+    fontWeight: '600',
+  },
+  segmentTextActive: {
+    color: colors.blueDark,
+    opacity: 1,
+    fontWeight: '700',
+  },
+  suggestRow: {
+    gap: 8,
+    paddingTop: 8,
+    paddingBottom: 2,
+    paddingRight: 4,
+  },
+  suggestChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: colors.blueLight,
+    borderWidth: 1,
+    borderColor: colors.blue,
+    maxWidth: 200,
+  },
+  suggestChipText: {
+    fontSize: 12,
+    color: colors.blueDark,
+    fontWeight: '600',
   },
   downloadBtn: {
     flexDirection: 'row',

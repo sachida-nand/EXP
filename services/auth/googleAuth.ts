@@ -111,6 +111,8 @@ export const signInWithGoogle = async (): Promise<SignInResult> => {
   };
 };
 
+let inFlightRefresh: Promise<string> | null = null;
+
 export const getFreshAccessToken = async (uid: string): Promise<string> => {
   const cached = await secureStorage.getToken(uid);
   const expiry = await secureStorage.getTokenExpiry(uid);
@@ -118,11 +120,21 @@ export const getFreshAccessToken = async (uid: string): Promise<string> => {
     return cached;
   }
 
-  configureGoogleSignIn();
-  const { accessToken } = await GoogleSignin.getTokens();
-  await secureStorage.setToken(uid, accessToken);
-  await secureStorage.setTokenExpiry(uid, Date.now() + TOKEN_LIFETIME_MS);
-  return accessToken;
+  if (inFlightRefresh) return inFlightRefresh;
+
+  inFlightRefresh = (async () => {
+    try {
+      configureGoogleSignIn();
+      const { accessToken } = await GoogleSignin.getTokens();
+      await secureStorage.setToken(uid, accessToken);
+      await secureStorage.setTokenExpiry(uid, Date.now() + TOKEN_LIFETIME_MS);
+      return accessToken;
+    } finally {
+      inFlightRefresh = null;
+    }
+  })();
+
+  return inFlightRefresh;
 };
 
 export const signOutCurrent = async (): Promise<void> => {

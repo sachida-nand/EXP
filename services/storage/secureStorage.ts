@@ -14,6 +14,8 @@ const K = {
   currency: (uid: string) => `u_${uid}_currency`,
   buckets: (uid: string) => `u_${uid}_buckets`,
   receiptsFolder: (uid: string) => `u_${uid}_receiptsFolder`,
+  parentFolder: (uid: string) => `u_${uid}_parentFolder`,
+  driveLayoutMigrated: (uid: string) => `u_${uid}_driveLayoutMigrated`,
   paidToRecents: (uid: string) => `u_${uid}_paidToRecents`,
 };
 
@@ -97,6 +99,15 @@ export const secureStorage = {
   getReceiptsFolder: (uid: string) => getRaw(K.receiptsFolder(uid)),
   setReceiptsFolder: (uid: string, folderId: string) =>
     setRaw(K.receiptsFolder(uid), folderId),
+
+  getParentFolder: (uid: string) => getRaw(K.parentFolder(uid)),
+  setParentFolder: (uid: string, folderId: string) =>
+    setRaw(K.parentFolder(uid), folderId),
+
+  getDriveLayoutMigrated: async (uid: string): Promise<boolean> =>
+    (await getRaw(K.driveLayoutMigrated(uid))) === 'true',
+  setDriveLayoutMigrated: (uid: string, migrated: boolean) =>
+    setRaw(K.driveLayoutMigrated(uid), migrated ? 'true' : 'false'),
 
   getPaidToRecents: async (uid: string): Promise<string[]> =>
     (await getJson<string[]>(K.paidToRecents(uid))) ?? [],

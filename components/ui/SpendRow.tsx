@@ -49,24 +49,30 @@ export const SpendRow: React.FC<SpendRowProps> = ({
         onLongPress={onDelete ? confirm : undefined}
       >
         <View style={{ flex: 1 }}>
-          <Text style={styles.paidTo} numberOfLines={1}>
-            {spend.paidTo || '—'}
-          </Text>
-          <View style={styles.metaRow}>
-            {spend.purpose ? (
-              <View style={styles.purposeChip}>
-                <Text style={styles.purposeText}>{spend.purpose}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.paidTo} numberOfLines={1}>
+              {spend.paidTo || '—'}
+            </Text>
+            {!spend.deductsWallet ? (
+              <View style={styles.lentChip}>
+                <Text style={styles.lentChipText}>Lent</Text>
               </View>
             ) : null}
-            {spend.notes ? (
+          </View>
+          {spend.notes ? (
+            <View style={styles.metaRow}>
               <Text style={styles.notes} numberOfLines={1}>
                 {spend.notes}
               </Text>
-            ) : null}
-          </View>
+            </View>
+          ) : null}
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={styles.amount}>{formatCurrency(spend.amount, currency)}</Text>
+          <Text
+            style={[styles.amount, !spend.deductsWallet && styles.amountMuted]}
+          >
+            {formatCurrency(spend.amount, currency)}
+          </Text>
           <Text style={styles.balance}>
             Bal {formatCurrency(spend.balanceAfter, currency)}
           </Text>
@@ -101,26 +107,24 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.grayLight,
     gap: 12,
   },
-  paidTo: { fontSize: 15, fontWeight: '600', color: colors.gray },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  paidTo: { fontSize: 15, fontWeight: '600', color: colors.gray, flexShrink: 1 },
+  lentChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: colors.amberLight,
+  },
+  lentChipText: { fontSize: 10, color: colors.amber, fontWeight: '700' },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginTop: 4,
   },
-  purposeChip: {
-    backgroundColor: colors.greenLight,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  purposeText: {
-    fontSize: 11,
-    color: colors.greenDark,
-    fontWeight: '600',
-  },
   notes: { fontSize: 12, color: colors.gray, opacity: 0.6, flexShrink: 1 },
   amount: { fontSize: 16, fontWeight: '700', color: colors.red },
+  amountMuted: { color: colors.amber },
   balance: { fontSize: 11, color: colors.gray, opacity: 0.6, marginTop: 2 },
   receiptDot: { fontSize: 11, marginTop: 2, opacity: 0.7 },
 });
