@@ -16,6 +16,7 @@ const K = {
   receiptsFolder: (uid: string) => `u_${uid}_receiptsFolder`,
   parentFolder: (uid: string) => `u_${uid}_parentFolder`,
   driveLayoutMigrated: (uid: string) => `u_${uid}_driveLayoutMigrated`,
+  tabsProvisioned: (uid: string) => `u_${uid}_tabsProvisioned`,
   paidToRecents: (uid: string) => `u_${uid}_paidToRecents`,
 };
 
@@ -108,6 +109,11 @@ export const secureStorage = {
     (await getRaw(K.driveLayoutMigrated(uid))) === 'true',
   setDriveLayoutMigrated: (uid: string, migrated: boolean) =>
     setRaw(K.driveLayoutMigrated(uid), migrated ? 'true' : 'false'),
+
+  getTabsProvisioned: async (uid: string): Promise<boolean> =>
+    (await getRaw(K.tabsProvisioned(uid))) === 'true',
+  setTabsProvisioned: (uid: string, provisioned: boolean) =>
+    setRaw(K.tabsProvisioned(uid), provisioned ? 'true' : 'false'),
 
   getPaidToRecents: async (uid: string): Promise<string[]> =>
     (await getJson<string[]>(K.paidToRecents(uid))) ?? [],

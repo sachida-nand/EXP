@@ -64,6 +64,19 @@ export interface FixedPayment {
   notes: string;
 }
 
+export type IncomeDirection = 'in' | 'out';
+
+export interface IncomeEntry {
+  id: string;
+  month: string;
+  year: number;
+  date: string;
+  paidBy: string;
+  amount: number;
+  notes: string;
+  direction: IncomeDirection;
+}
+
 export interface CarryForward {
   amount: number;
   fromMonth: string;

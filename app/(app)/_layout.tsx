@@ -141,6 +141,10 @@ export default function AppLayout() {
             ),
           }}
         />
+        <Tabs.Screen
+          name="income"
+          options={{ href: null }}
+        />
       </Tabs>
     </>
   );

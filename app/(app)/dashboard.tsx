@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { colors } from '../../constants/colors';
 import { HeroCard, ProgressBar } from '../../components/ui/HeroCard';
 import { StatCard } from '../../components/ui/StatCard';
@@ -27,6 +27,7 @@ import {
 } from '../../services/drive/driveReceipts';
 
 export default function Dashboard() {
+  const router = useRouter();
   const { user } = useAuth();
   const {
     month,
@@ -39,6 +40,7 @@ export default function Dashboard() {
     walletBudget,
     walletSpent,
     walletRemaining,
+    monthIncomeTotal,
     loading,
     refresh,
     addSpend,
@@ -165,7 +167,8 @@ export default function Dashboard() {
   const allocated = allocations.reduce((s, a) => s + a.allocatedAmount, 0);
   const salaryAmount = salary?.salaryAmount ?? 0;
   const fixedPaid = fixedPayments.reduce((s, p) => s + p.amount, 0);
-  const netSavings = salaryAmount + carryForward - allocated;
+  const netSavings =
+    salaryAmount + carryForward + monthIncomeTotal - allocated;
 
   const fixedBuckets = allocations.filter((a) => a.bucketType !== 'wallet');
 
@@ -283,6 +286,28 @@ export default function Dashboard() {
           <ProgressBar value={walletSpent} max={walletBudget} />
         </HeroCard>
 
+        <Pressable
+          onPress={() => router.push('/(app)/income')}
+          style={styles.incomeCard}
+        >
+          <View style={styles.incomeCardLeft}>
+            <View style={styles.incomeIconWrap}>
+              <Ionicons
+                name="trending-up"
+                size={18}
+                color={colors.greenDark}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.incomeCardLabel}>Extra income this month</Text>
+              <Text style={styles.incomeCardValue}>
+                {maskedAmount(monthIncomeTotal)}
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.gray} />
+        </Pressable>
+
         <Text style={styles.section}>Fixed payments</Text>
         {fixedBuckets.length === 0 ? (
           <Text style={styles.empty}>
@@ -379,5 +404,44 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     textAlign: 'center',
     marginTop: 16,
+  },
+  incomeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: colors.greenLight,
+    borderWidth: 1,
+    borderColor: colors.green,
+  },
+  incomeCardLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  incomeIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  incomeCardLabel: {
+    fontSize: 12,
+    color: colors.greenDark,
+    opacity: 0.85,
+    fontWeight: '600',
+  },
+  incomeCardValue: {
+    fontSize: 16,
+    color: colors.greenDark,
+    fontWeight: '800',
+    marginTop: 2,
   },
 });

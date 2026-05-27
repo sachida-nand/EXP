@@ -99,6 +99,102 @@ npx tsc --noEmit        # type-check
 
 If you change anything in `app.json` plugins or add a native module, re-run `npx expo prebuild --clean && npm run android`.
 
+## Production build (smaller APK / AAB)
+
+A default debug APK from `npm run android` is large because it bundles every CPU architecture, includes JS dev tooling, and skips minification. For a release build you have two paths:
+
+### Option A — AAB for Play Store (smallest install size for users)
+
+Google Play splits an `.aab` into per-device APKs at install time, so each user only downloads native code for their CPU. This is the right choice for distribution.
+
+```sh
+npx expo prebuild --clean
+cd android
+./gradlew :app:bundleRelease
+```
+
+Output: `android/app/build/outputs/bundle/release/app-release.aab`. Upload that to Play Console — typical install size on a single device drops to **20–35 MB** for this app.
+
+### Option B — Per-architecture APKs for direct distribution
+
+If you're sideloading or distributing outside the Play Store, build split APKs so each user's APK only contains their CPU's native code (instead of one universal APK with all four architectures).
+
+1. Edit `android/gradle.properties` and pin to ARM only (drops x86 / x86_64, which most modern phones don't need):
+
+   ```
+   reactNativeArchitectures=arm64-v8a,armeabi-v7a
+   ```
+
+2. Edit `android/app/build.gradle`, inside the `android { ... }` block, enable APK splits:
+
+   ```gradle
+   splits {
+       abi {
+           enable true
+           reset()
+           include "arm64-v8a", "armeabi-v7a"
+           universalApk false
+       }
+   }
+   ```
+
+3. Build:
+
+   ```sh
+   cd android
+   ./gradlew :app:assembleRelease
+   ```
+
+   Output: `android/app/build/outputs/apk/release/` will contain one APK per architecture (`app-arm64-v8a-release.apk`, `app-armeabi-v7a-release.apk`). Ship the matching one to each user — usually **25–40 MB** instead of an 80–120 MB universal APK.
+
+### What's already optimized
+
+- **Hermes** is the default JS engine on Expo SDK 54 — bytecode is precompiled and smaller / faster than JSC.
+- **R8 / ProGuard** runs automatically on release builds and shrinks the JVM bytecode.
+- **Image compression** for receipts: screenshots are resized to 1080 px wide and re-encoded at JPEG quality 0.35 before upload (`AddSpendModal` and `import.tsx`), so the bundled `assets/` is tiny — only icons.
+
+### Further reductions (optional)
+
+- **Drop unused vector-icon families.** `@expo/vector-icons` ships every Ionicons / FontAwesome / MaterialIcons font (~4 MB total). The app only uses Ionicons. To strip the rest:
+
+  ```js
+  // metro.config.js (create if missing)
+  const { getDefaultConfig } = require('expo/metro-config');
+  const config = getDefaultConfig(__dirname);
+  config.resolver.assetExts = config.resolver.assetExts.filter(
+    (e) => e !== 'ttf',
+  );
+  config.resolver.sourceExts.push('ttf');
+  module.exports = config;
+  ```
+
+  Then import only `Ionicons` from `@expo/vector-icons/Ionicons` (already the case here) — Metro tree-shakes the unused fonts. Saves ~3 MB.
+
+- **Resource shrinking** — already on by default for release in Expo SDK 54's generated `build.gradle`. Verify `shrinkResources true` and `minifyEnabled true` are present under `buildTypes.release`.
+
+- **Strip debug symbols from native libraries** by adding to `android/app/build.gradle` inside `buildTypes.release`:
+
+  ```gradle
+  ndk {
+      debugSymbolLevel 'NONE'
+  }
+  ```
+
+  Saves a few MB but loses crash-stack symbolication. Keep `'SYMBOL_TABLE'` if you upload to Play Console for crash reports.
+
+### Verifying the size
+
+```sh
+ls -lh android/app/build/outputs/apk/release/
+ls -lh android/app/build/outputs/bundle/release/
+```
+
+Or analyze what's inside the APK:
+
+```sh
+cd android && ./gradlew :app:analyzeReleaseBundle    # if available
+```
+
 ## Data model
 
 ### Drive layout

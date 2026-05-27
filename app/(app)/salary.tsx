@@ -12,9 +12,11 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../constants/colors';
 import { AllocationRow } from '../../components/ui/AllocationRow';
 import { AddBucketModal } from '../../components/modals/AddBucketModal';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { useDataContext } from '../../context/DataContext';
 import { useSheets } from '../../hooks/useSheets';
@@ -31,6 +33,7 @@ import { toSheetDate, previousMonth } from '../../utils/dateHelpers';
 import type { Bucket, Allocation } from '../../types';
 
 export default function SalaryScreen() {
+  const router = useRouter();
   const { user, sheetId } = useAuth();
   const {
     month,
@@ -39,6 +42,7 @@ export default function SalaryScreen() {
     allocations,
     saveAllocationsForMonth,
     refresh,
+    monthIncomeTotal,
   } = useDataContext();
   const sheets = useSheets();
 
@@ -198,6 +202,24 @@ export default function SalaryScreen() {
           placeholder="e.g. Company"
         />
 
+        <Pressable
+          onPress={() => router.push('/(app)/income')}
+          style={styles.incomeCard}
+        >
+          <View style={styles.incomeCardLeft}>
+            <Ionicons name="trending-up" size={18} color={colors.greenDark} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.incomeCardLabel}>
+                Extra income received this month
+              </Text>
+              <Text style={styles.incomeCardValue}>
+                {formatCurrency(monthIncomeTotal, currency)}
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.gray} />
+        </Pressable>
+
         <Text style={styles.sectionTitle}>Allocations</Text>
 
         {buckets.map((b) => (
@@ -317,4 +339,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   saveBtnText: { color: colors.white, fontWeight: '700', fontSize: 15 },
+  incomeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: colors.greenLight,
+    borderWidth: 1,
+    borderColor: colors.green,
+  },
+  incomeCardLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  incomeCardLabel: {
+    fontSize: 12,
+    color: colors.greenDark,
+    opacity: 0.85,
+    fontWeight: '600',
+  },
+  incomeCardValue: {
+    fontSize: 16,
+    color: colors.greenDark,
+    fontWeight: '800',
+    marginTop: 2,
+  },
 });

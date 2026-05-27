@@ -9,7 +9,8 @@ import React, {
 import { Alert } from 'react-native';
 import { AxiosError } from 'axios';
 import { monthName, year as yearOf } from '../utils/dateHelpers';
-import { fetchTabGids } from '../services/sheets/sheetsSetup';
+import { fetchTabGids, ensureMissingTabs } from '../services/sheets/sheetsSetup';
+import { secureStorage } from '../services/storage/secureStorage';
 import { getSalaryFor } from '../services/sheets/salaryService';
 import {
   listAllocations,
@@ -27,12 +28,20 @@ import {
   addFixedPayment as svcAddFixedPayment,
   removeFixedPayment as svcRemoveFixedPayment,
 } from '../services/sheets/fixedService';
+import {
+  listIncome,
+  addIncome as svcAddIncome,
+  updateIncome as svcUpdateIncome,
+  removeIncome as svcRemoveIncome,
+  totalIncomeForMonth,
+} from '../services/sheets/incomeService';
 import { TABS, type TabName } from '../constants/sheetConfig';
 import type {
   MonthData,
   Allocation,
   WalletSpend,
   FixedPayment,
+  IncomeEntry,
 } from '../types';
 import { useAuthContext } from './AuthContext';
 
@@ -44,6 +53,7 @@ interface State {
   allocations: Allocation[];
   spends: WalletSpend[];
   fixedPayments: FixedPayment[];
+  incomeEntries: IncomeEntry[];
   carryForward: number;
   tabGids: Record<TabName, number> | null;
 }
@@ -56,7 +66,10 @@ type Action =
   | { type: 'spend-updated'; spend: WalletSpend }
   | { type: 'spend-removed'; id: string }
   | { type: 'fixed-added'; payment: FixedPayment }
-  | { type: 'fixed-removed'; id: string };
+  | { type: 'fixed-removed'; id: string }
+  | { type: 'income-added'; entry: IncomeEntry }
+  | { type: 'income-updated'; entry: IncomeEntry }
+  | { type: 'income-removed'; id: string };
 
 const todayMonth = monthName();
 const todayYear = yearOf();
@@ -69,6 +82,7 @@ const initialState: State = {
   allocations: [],
   spends: [],
   fixedPayments: [],
+  incomeEntries: [],
   carryForward: 0,
   tabGids: null,
 };
@@ -102,6 +116,23 @@ const reducer = (state: State, action: Action): State => {
         ...state,
         fixedPayments: state.fixedPayments.filter((p) => p.id !== action.id),
       };
+    case 'income-added':
+      return {
+        ...state,
+        incomeEntries: [action.entry, ...state.incomeEntries],
+      };
+    case 'income-updated':
+      return {
+        ...state,
+        incomeEntries: state.incomeEntries.map((e) =>
+          e.id === action.entry.id ? action.entry : e,
+        ),
+      };
+    case 'income-removed':
+      return {
+        ...state,
+        incomeEntries: state.incomeEntries.filter((e) => e.id !== action.id),
+      };
     default:
       return state;
   }
@@ -119,10 +150,14 @@ interface DataContextValue extends State {
   saveAllocationsForMonth: (list: Allocation[]) => Promise<void>;
   addFixedPayment: (payment: Omit<FixedPayment, 'id'>) => Promise<void>;
   removeFixedPayment: (id: string) => Promise<void>;
+  addIncome: (entry: Omit<IncomeEntry, 'id'>) => Promise<void>;
+  updateIncome: (id: string, patch: Omit<IncomeEntry, 'id'>) => Promise<void>;
+  removeIncome: (id: string) => Promise<void>;
   walletBucket: Allocation | undefined;
   walletBudget: number;
   walletSpent: number;
   walletRemaining: number;
+  monthIncomeTotal: number;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -137,14 +172,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     async (uid: string, sid: string, month: string, year: number) => {
       dispatch({ type: 'loading', loading: true });
       try {
-        const [salary, allocations, spends, fixedPayments, tabGids] =
+        let [salary, allocations, spends, fixedPayments, incomeEntries, tabGids] =
           await Promise.all([
             getSalaryFor(uid, sid, month, year),
             listAllocations(uid, sid, month, year),
             listSpends(uid, sid, month, year),
             listFixedPayments(uid, sid, month, year),
+            listIncome(uid, sid, month, year).catch(() => [] as IncomeEntry[]),
             fetchTabGids(uid, sid),
           ]);
+
+        // One-time tab provisioning for users whose sheet predates a newly-
+        // added tab (e.g. Extra Income). Idempotent — cached flag short-
+        // circuits subsequent runs.
+        const provisioned = await secureStorage.getTabsProvisioned(uid);
+        if (!provisioned) {
+          try {
+            tabGids = await ensureMissingTabs(uid, sid, tabGids);
+            await secureStorage.setTabsProvisioned(uid, true);
+            // Income tab might have just been created — re-list now that it
+            // exists so the screen has the right (empty) starting state.
+            try {
+              incomeEntries = await listIncome(uid, sid, month, year);
+            } catch {
+              incomeEntries = [];
+            }
+          } catch (err) {
+            console.warn('[hydrateFor] ensureMissingTabs failed', err);
+          }
+        }
 
         const carryForward = salary?.carryForward ?? 0;
 
@@ -155,6 +211,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             allocations,
             spends,
             fixedPayments,
+            incomeEntries,
             carryForward,
             tabGids,
           },
@@ -276,6 +333,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     [user, sheetId, state.tabGids, refresh],
   );
 
+  const addIncome = useCallback(
+    async (entry: Omit<IncomeEntry, 'id'>) => {
+      if (!user || !sheetId) throw new Error('Not authenticated');
+      const added = await svcAddIncome(user.uid, sheetId, entry);
+      dispatch({ type: 'income-added', entry: added });
+    },
+    [user, sheetId],
+  );
+
+  const updateIncome = useCallback(
+    async (id: string, patch: Omit<IncomeEntry, 'id'>) => {
+      if (!user || !sheetId) throw new Error('Not authenticated');
+      const next: IncomeEntry = { ...patch, id };
+      await svcUpdateIncome(user.uid, sheetId, next);
+      dispatch({ type: 'income-updated', entry: next });
+    },
+    [user, sheetId],
+  );
+
+  const removeIncome = useCallback(
+    async (id: string) => {
+      if (!user || !sheetId) throw new Error('Not authenticated');
+      const gid = state.tabGids?.[TABS.extraIncome];
+      if (gid === undefined) throw new Error('Missing tab gid for Extra Income');
+      await svcRemoveIncome(user.uid, sheetId, gid, id);
+      dispatch({ type: 'income-removed', id });
+    },
+    [user, sheetId, state.tabGids],
+  );
+
+  const monthIncomeTotal = useMemo(
+    () => totalIncomeForMonth(state.incomeEntries),
+    [state.incomeEntries],
+  );
+
   const value = useMemo<DataContextValue>(
     () => ({
       ...state,
@@ -287,10 +379,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
       saveAllocationsForMonth,
       addFixedPayment,
       removeFixedPayment,
+      addIncome,
+      updateIncome,
+      removeIncome,
       walletBucket,
       walletBudget,
       walletSpent,
       walletRemaining,
+      monthIncomeTotal,
     }),
     [
       state,
@@ -302,10 +398,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({
       saveAllocationsForMonth,
       addFixedPayment,
       removeFixedPayment,
+      addIncome,
+      updateIncome,
+      removeIncome,
       walletBucket,
       walletBudget,
       walletSpent,
       walletRemaining,
+      monthIncomeTotal,
     ],
   );
 

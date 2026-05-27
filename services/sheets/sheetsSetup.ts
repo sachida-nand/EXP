@@ -37,6 +37,7 @@ const ORDERED_TABS: TabName[] = [
   TABS.allocations,
   TABS.dailyWallet,
   TABS.fixedPayments,
+  TABS.extraIncome,
 ];
 
 interface CreatedSpreadsheet {
@@ -207,4 +208,57 @@ export const fetchTabGids = async (
     },
   );
   return mapTabGids(res.data.sheets);
+};
+
+// Ensures every tab in ORDERED_TABS exists on an already-created sheet. For
+// users who provisioned their sheet before a new tab was added to the schema
+// (e.g. Extra Income), this creates the missing tab(s) and writes the header
+// row. Idempotent — skips tabs that are already present. Returns the (possibly
+// updated) tabGids record.
+export const ensureMissingTabs = async (
+  uid: string,
+  sheetId: string,
+  existingGids: Record<TabName, number>,
+): Promise<Record<TabName, number>> => {
+  const missing = ORDERED_TABS.filter((tab) => existingGids[tab] === undefined);
+  if (missing.length === 0) return existingGids;
+
+  const token = await getFreshAccessToken(uid);
+
+  const requests = missing.map((tab) => ({
+    addSheet: { properties: { title: tab } },
+  }));
+
+  interface BatchUpdateReply {
+    replies: { addSheet?: { properties?: { sheetId?: number; title?: string } } }[];
+  }
+
+  const res = await axios.post<BatchUpdateReply>(
+    `${SHEETS_BASE}/${sheetId}:batchUpdate`,
+    { requests },
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+
+  const next = { ...existingGids };
+  const headerWrites: Promise<unknown>[] = [];
+  res.data.replies.forEach((reply, i) => {
+    const tab = missing[i];
+    const props = reply.addSheet?.properties;
+    if (props?.sheetId !== undefined && props?.title) {
+      next[tab] = props.sheetId;
+      headerWrites.push(
+        axios.put(
+          `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(tab)}!A1`,
+          { values: [HEADERS[tab]] },
+          {
+            params: { valueInputOption: 'RAW' },
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        ),
+      );
+    }
+  });
+  await Promise.all(headerWrites);
+  console.log('[ensureMissingTabs] created tabs:', missing);
+  return next;
 };

@@ -4,6 +4,7 @@ import { listSalary } from '../services/sheets/salaryService';
 import { listAllAllocations } from '../services/sheets/allocationsService';
 import { listSpends } from '../services/sheets/walletService';
 import { listAllFixedPayments } from '../services/sheets/fixedService';
+import { listIncome } from '../services/sheets/incomeService';
 
 export const useSheets = () => {
   const { user, sheetId } = useAuth();
@@ -38,6 +39,14 @@ export const useSheets = () => {
       listAllFixed: () => {
         const { uid, sheetId } = requireReady();
         return listAllFixedPayments(uid, sheetId);
+      },
+      listIncomeAll: () => {
+        const { uid, sheetId } = requireReady();
+        return listIncome(uid, sheetId);
+      },
+      listIncomeForMonth: (month: string, year: number) => {
+        const { uid, sheetId } = requireReady();
+        return listIncome(uid, sheetId, month, year);
       },
     };
   }, [user, sheetId]);
